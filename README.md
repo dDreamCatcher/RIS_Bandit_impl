@@ -1,2 +1,2 @@
-# RIS_Bandit_impl
+# Implementation of REMARKABLE:RIS-Enabled Mobile Beamforming through Kernalized Bandit Learning
  
