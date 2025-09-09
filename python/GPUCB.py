@@ -1,5 +1,5 @@
 '''
-implementation of Gaussian Process Upper Confidence Bound Bandit algorithm
+implement Gaussian Process Upper Confidence Bound Bandit policy
 ref: @misc{deng2022interference,
       title={Interference Constrained Beam Alignment for Time-Varying Channels via Kernelized Bandits}, 
       author={Yuntian Deng and Xingyu Zhou and Arnob Ghosh and Abhishek Gupta and Ness B. Shroff},
@@ -26,14 +26,19 @@ class GP_UCB():
         self.R = R
         self.n_arms = n_arms
 
-        self.round = 0                              # to count the number of rounds
+        self.round = 0                       # to count the number of rounds
         self.mean_vec_x = np.zeros(self.n_arms)     # posterior mean
         self.cov_mat_x = kernel
         self.var_vec_x = (1/self.Lambda) * (np.diag(self.cov_mat_x))  # posterior variance
- 
+      
+
+    # def __str__(self):
+    #     return 'UCB policy, alpha = {}'.format(self.alpha)
+
     def pull_arm(self):
         if self.round == 0:
-            arm_pld = np.random.randint(self.n_arms)
+            arm_pld = 7
+            # arm_pld = np.random.randint(self.n_arms)
             self.round += 1
         else:
             # ipdb.set_trace()
@@ -60,20 +65,19 @@ class GP_UCB():
 class GP_UCB_Constraint(GP_UCB):
     def __init__(self, n_arms, B, kernel_x, kernel_y, Lambda, R, phi_max, eta):
         """
-        GP_UCB with contstrained optimization
         @param Lambda, R, phi_max, eta: hyperparameters
         @param n_arms: number of arms 
         @param B: exploration parameter used in calculating optimal beta
-        @param kernel_x, kernel_y: kernel function model the correlation between arms
+        @param kernel: kernel function model - the correlation between arms
         """
         super().__init__(n_arms, B, kernel_x, Lambda, R)
         self.phi_max = phi_max
         self.eta = eta
 
-        self.round = 0                                              # to count the number of rounds
-        self.mean_vec_y = np.zeros(self.n_arms)                     # posterior mean
+        self.round = 0                              # to count the number of rounds
+        self.mean_vec_y = np.zeros(self.n_arms)     # posterior mean
         self.cov_mat_y = kernel_y
-        self.var_vec_y = (1/self.Lambda) * (np.diag(self.cov_mat_y))        # posterior variance
+        self.var_vec_y = (1/self.Lambda) * (np.diag(self.cov_mat_y))  # posterior variance
         self.phi_t = phi_max
     
     def pull_arm(self):
@@ -117,17 +121,20 @@ class RE_GP_UCB(GP_UCB):
         @param n_arms: number of arms 
         @param B: exploration parameter used in calculating optimal beta
         @param kernel: kernel function model the correlation between arms
-        @param reset_noB: restart schedule
         """
         super().__init__(n_arms, B, kernel, Lambda, R)
         self.noB = reset_noB
         self.kernel = kernel
-        self.reset = 1
+        self.reset = 0
+
+    # def __str__(self):
+    #     return 'UCB policy, alpha = {}'.format(self.alpha)
 
     def pull_arm(self):
         if self.round == 0:
             arm_pld = np.random.randint(self.n_arms)
             self.round += 1
+            self.reset += 1
         else:
             # ipdb.set_trace()
             beta_t = self.optimal_beta_selection()
@@ -140,6 +147,8 @@ class RE_GP_UCB(GP_UCB):
         """
         return: optimal beta for exploration_exploitation trade-off at each round.
         """
+        if (self.round % self.noB) == 0:
+            self.reset = 1
         gamma_t = math.log(self.reset)
         return self.B + self.R/math.sqrt(self.Lambda) * math.sqrt(gamma_t)      # Alg. 1 Line 5 in ref paper
     
@@ -157,53 +166,47 @@ class RE_GP_UCB(GP_UCB):
         if not type(self.noB) == int:
             raise TypeError("`noB` must be integer") 
         
-        # reset posterior
-        if (round % self.noB) == 0:
-            self.mean_vec_x = np.zeros(self.n_arms) 
+        if (self.round % self.noB) == 0:
+            self.mean_vec_x = np.zeros(self.n_arms)     # posterior mean
             self.cov_mat_x = self.kernel
             self.var_vec_x = (1/self.Lambda) * (np.diag(self.cov_mat_x))
-
-            self.reset = 1
 
 class RE_GP_UCB_Constraint(GP_UCB_Constraint):
     def __init__(self, n_arms, B, kernel_x, kernel_y, Lambda, R, phi_max, eta, reset_B):
         """
-        Restart strategy applied to GP_UCB with contstrained optimization
-        @param Lambda, R, phi_max, eta: hyperparameters
+        @param Lambda, R: hyperparameters
         @param n_arms: number of arms 
         @param B: exploration parameter used in calculating optimal beta
-        @param kernel_x, kernel_y: kernel function model the correlation between arms
-        @param reset_B: restart schedule
+        @param kernel: kernel function model the correlation between arms
         """
         super().__init__(n_arms, B, kernel_x, kernel_y, Lambda, R, phi_max, eta)
         self.H = reset_B
         self.kernel_x = kernel_x
         self.kernel_y = kernel_y 
-        self.reset = 1
-        self.Bx = B
-        self.L = Lambda
-        self.Rx = R
-        # ipdb.set_trace()
+        self.reset = 0
+
     def pull_arm(self):
-        if (self.round % self.H) == 0:
-            arm_pld = 3 #np.random.randint(self.n_arms)
+        if self.round == 0:
+            arm_pld = np.random.randint(self.n_arms)
             self.round += 1
+            self.reset += 1
             beta_t = self.optimal_beta_selection()
-            # ipdb.set_trace()
         else:       
-            # ipdb.set_trace()
+        # ipdb.set_trace()
             beta_t = self.optimal_beta_selection()
             f_est = self.mean_vec_x + beta_t * np.sqrt(self.var_vec_x)     # Alg. 1 Line 6 in ref paper
             g_est = self.mean_vec_y - beta_t * np.sqrt(self.var_vec_y)     # Alg. 1 Line 6 in ref paper
             arm_pld = np.argmax(f_est - self.phi_t * g_est)                # Alg. 1 Line 7 and 8 - defining acqusition and choosing beamforming vector
-            self.round += 1    
-            self.reset += 1 
+            self.round += 1  
+            self.reset += 1    
         return arm_pld, beta_t
     
     def optimal_beta_selection(self):
         """
         return: optimal beta for exploration_exploitation trade-off at each round.
-        """    
+        """
+        if (self.round % self.H) == 0:
+            self.reset = 1
         gamma_t = math.log(self.reset)
         return self.B + self.R/math.sqrt(self.Lambda) * math.sqrt(gamma_t)      # Alg. 1 Line 5 in ref paper
     
@@ -212,7 +215,6 @@ class RE_GP_UCB_Constraint(GP_UCB_Constraint):
         @param arm: selected arm for current round
         @param reward: reward for selected arm 
         """
-        # ipdb.set_trace()
         super().update(arm, reward, violation, beta_t)
 
         self._reset_update()
@@ -222,22 +224,13 @@ class RE_GP_UCB_Constraint(GP_UCB_Constraint):
             raise TypeError("`H(budget)` must be integer") 
         # ipdb.set_trace()
         if (self.round % self.H) == 0:
-            self.mean_vec_x = np.zeros(self.n_arms)     
+            self.mean_vec_x = np.zeros(self.n_arms)     # posterior mean
             self.cov_mat_x = self.kernel_x
             self.var_vec_x = (1/self.Lambda) * (np.diag(self.cov_mat_x))
 
-            self.mean_vec_y = np.zeros(self.n_arms)    
+            self.mean_vec_y = np.zeros(self.n_arms)     # posterior mean
             self.cov_mat_y = self.kernel_y
             self.var_vec_y = (1/self.Lambda) * (np.diag(self.cov_mat_y))
-
-            self.reset = 1 
-            # self.B = self.Bx[1]
-            # self.Lambda = self.L[1]
-            # self.R = self.Rx[1]
-
-            # if self.round == 600:
-            #     self.B = self.Bx[2]
-
 
 
 
